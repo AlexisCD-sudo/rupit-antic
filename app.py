@@ -1,7 +1,21 @@
-from flask import Flask, render_template_string, request
+import os
 import sqlite3
+import json
+from flask import Flask, render_template_string, request, redirect, url_for
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+
+# Configuració de la carpeta de pujades
+UPLOAD_FOLDER = 'static/uploads'
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
@@ -24,6 +38,7 @@ HTML_TEMPLATE = '''
             text-align: center; 
             padding: 2.5rem 1rem 1.5rem 1rem; 
             border-bottom: 4px solid #8c6d58; 
+            position: relative;
         }
         header h1 { 
             margin: 0; 
@@ -34,6 +49,21 @@ HTML_TEMPLATE = '''
             margin-top: 0.5rem; 
             opacity: 0.85; 
             font-style: italic; 
+        }
+        .admin-link {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            color: #d1c2b5;
+            text-decoration: none;
+            font-size: 0.85rem;
+            border: 1px solid #8c6d58;
+            padding: 0.3rem 0.7rem;
+            border-radius: 4px;
+        }
+        .admin-link:hover {
+            background: #8c6d58;
+            color: #fff;
         }
         
         .search-container {
@@ -125,7 +155,6 @@ HTML_TEMPLATE = '''
             margin-bottom: 1rem; 
         }
         
-        /* Botons d'acció */
         .actions {
             display: flex;
             gap: 0.5rem;
@@ -158,7 +187,6 @@ HTML_TEMPLATE = '''
             color: #2c221e;
         }
 
-        /* Visor en Gran (Modal Lightbox) */
         .modal {
             display: none;
             position: fixed;
@@ -167,7 +195,7 @@ HTML_TEMPLATE = '''
             top: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.85);
+            background-color: rgba(0, 0, 0, 0.88);
             justify-content: center;
             align-items: center;
             flex-direction: column;
@@ -178,7 +206,8 @@ HTML_TEMPLATE = '''
             max-width: 90%;
             max-height: 80vh;
             border-radius: 4px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            box-shadow: 0 0 20px rgba(0,0,0,0.6);
+            object-fit: contain;
         }
         .modal-caption {
             color: #fff;
@@ -186,6 +215,7 @@ HTML_TEMPLATE = '''
             text-align: center;
             font-family: Georgia, serif;
             font-size: 1.1rem;
+            max-width: 800px;
         }
         .close-modal {
             position: absolute;
@@ -210,6 +240,7 @@ HTML_TEMPLATE = '''
 <body>
 
 <header>
+    <a href="/pujar" class="admin-link">+ Pujar foto pròpia</a>
     <h1>Rupit Antic</h1>
     <p>Memòria fotogràfica i patrimoni històric de Rupit i el Collsacabra</p>
     
@@ -231,21 +262,25 @@ HTML_TEMPLATE = '''
 
     <div class="grid">
         {% for foto in fotos %}
+        {% set img_url = foto[6] if foto[6] and foto[6] != '' else foto[5] %}
         <div class="card">
-            <img src="{{ foto[6] }}" alt="{{ foto[1] }}" loading="lazy" onclick="obrirGran('{{ foto[6] }}', '{{ foto[1]|replace("'", "\\'") }}')">
+            <img src="{{ img_url }}" alt="{{ foto[1] }}" loading="lazy" data-url="{{ img_url }}" data-title="{{ foto[1] }}" onclick="ampliarFoto(this)">
             <div class="card-content">
                 <div>
                     <h3>{{ foto[1] }}</h3>
                     <div class="meta">
-                        <span><strong>Autor:</strong> {{ foto[2] }}</span><br>
-                        <span><strong>Data:</strong> {{ foto[3] }}</span>
+                        <span><strong>Autor:</strong> {{ foto[2] or 'Autor desconegut' }}</span><br>
+                        <span><strong>Data:</strong> {{ foto[3] or 'Desconeguda' }}</span>
                     </div>
                 </div>
                 
-                <!-- Els dos botons d'acció -->
                 <div class="actions">
-                    <button class="btn btn-outline" onclick="obrirGran('{{ foto[6] }}', '{{ foto[1]|replace("'", "\\'") }}')">🔍 Ampliar</button>
-                    <a href="{{ foto[5] }}" target="_blank" class="btn">🔗 Veure font</a>
+                    <button class="btn btn-outline" data-url="{{ img_url }}" data-title="{{ foto[1] }}" onclick="ampliarFoto(this)">🔍 Ampliar</button>
+                    {% if foto[5] and foto[5] != '#' and 'http' in foto[5] %}
+                        <a href="{{ foto[5] }}" target="_blank" class="btn">🔗 Veure font</a>
+                    {% else %}
+                        <span class="btn" style="background:#a0958d; cursor:default;">📁 Arxiu privat</span>
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -253,36 +288,34 @@ HTML_TEMPLATE = '''
     </div>
 </div>
 
-<!-- Finestra Modal per veure la imatge en gran -->
 <div id="imageModal" class="modal" onclick="tancarGran()">
-    <span class="close-modal">&times;</span>
+    <span class="close-modal" onclick="tancarGran()">&times;</span>
     <img id="modalImg" src="" alt="Imatge ampliada">
     <div id="modalCaption" class="modal-caption"></div>
 </div>
 
 <footer>
     <p><strong>Rupit Antic</strong> — Arxiu digital i memòria fotogràfica de Rupit i Pruit.</p>
-    <p style="margin-top: 0.5rem; opacity: 0.8; font-size: 0.8rem;">
-        Aquest és un projecte personal sense ànim de lucre creat amb finalitats culturals, de preservació i divulgació del patrimoni històric local.
-    </p>
 </footer>
 
 <script>
-    function obrirGran(url, titol) {
+    function ampliarFoto(element) {
+        var url = element.getAttribute('data-url');
+        var titol = element.getAttribute('data-title');
+        
         var modal = document.getElementById("imageModal");
         var modalImg = document.getElementById("modalImg");
         var modalCaption = document.getElementById("modalCaption");
         
-        modal.style.display = "flex";
         modalImg.src = url;
         modalCaption.innerText = titol;
+        modal.style.display = "flex";
     }
 
     function tancarGran() {
         document.getElementById("imageModal").style.display = "none";
     }
 
-    // Tancar amb la tecla Escape
     document.addEventListener('keydown', function(event) {
         if (event.key === "Escape") {
             tancarGran();
@@ -290,6 +323,50 @@ HTML_TEMPLATE = '''
     });
 </script>
 
+</body>
+</html>
+'''
+
+FORM_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <title>Pujar foto pròpia - Rupit Antic</title>
+    <style>
+        body { font-family: sans-serif; background: #f4f1ea; color: #333; padding: 2rem; }
+        .form-box { max-width: 500px; margin: 0 auto; background: white; padding: 2rem; border-radius: 8px; border: 1px solid #8c6d58; }
+        h2 { font-family: Georgia, serif; color: #2c221e; margin-top: 0; }
+        label { display: block; margin-top: 1rem; font-weight: bold; font-size: 0.9rem; }
+        input[type="text"], textarea, input[type="file"] { width: 100%; padding: 0.6rem; margin-top: 0.3rem; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { margin-top: 1.5rem; width: 100%; padding: 0.8rem; background: #8c6d58; color: white; border: none; font-weight: bold; font-size: 1rem; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #6e5443; }
+        .back-link { display: block; margin-top: 1rem; text-align: center; color: #8c6d58; text-decoration: none; }
+    </style>
+</head>
+<body>
+<div class="form-box">
+    <h2>Pujar fotografia pròpia</h2>
+    <form method="POST" action="/pujar" enctype="multipart/form-data">
+        <label>Selecciona la foto de l'iMac:</label>
+        <input type="file" name="imatge" required accept="image/*">
+
+        <label>Títol o Descripció curta:</label>
+        <input type="text" name="titol" placeholder="Ex: Vista del Carrer del Fossar" required>
+
+        <label>Autor / Fotògraf (opcional):</label>
+        <input type="text" name="creador" placeholder="Deixa en blanc si és Autor desconegut">
+
+        <label>Any / Data aproximada (opcional):</label>
+        <input type="text" name="data" placeholder="Ex: c. 1930 o 1925">
+
+        <label>Descripció detallada (opcional):</label>
+        <textarea name="descripcio" rows="3" placeholder="Informació addicional sobre la imatge..."></textarea>
+
+        <button type="submit">Afegir a la Galeria</button>
+    </form>
+    <a href="/" class="back-link">← Tornar a la galeria</a>
+</div>
 </body>
 </html>
 '''
@@ -304,20 +381,51 @@ def index():
         search_param = f"%{query}%"
         cursor.execute('''
             SELECT * FROM fotografies 
-            WHERE (thumbnail LIKE 'http%') 
+            WHERE (thumbnail LIKE 'http%' OR thumbnail LIKE '/static/%' OR url_orig LIKE 'http%') 
               AND (titol LIKE ? OR descripcio LIKE ? OR creador LIKE ? OR data LIKE ?)
             ORDER BY data ASC
         ''', (search_param, search_param, search_param, search_param))
     else:
         cursor.execute('''
             SELECT * FROM fotografies 
-            WHERE thumbnail LIKE 'http%' 
+            WHERE thumbnail LIKE 'http%' OR thumbnail LIKE '/static/%' OR url_orig LIKE 'http%'
             ORDER BY data ASC
         ''')
         
     fotos = cursor.fetchall()
     conn.close()
     return render_template_string(HTML_TEMPLATE, fotos=fotos, query=query)
+
+@app.route('/pujar', methods=['GET', 'POST'])
+def pujar():
+    if request.method == 'POST':
+        file = request.files.get('imatge')
+        titol = request.form.get('titol', '').strip()
+        creador = request.form.get('creador', '').strip() or 'Autor desconegut'
+        data = request.form.get('data', '').strip() or 'Data no consta'
+        descripcio = request.form.get('descripcio', '').strip()
+
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            filename = f"privat_{filename}"
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+
+            img_url = f"/static/uploads/{filename}"
+            foto_id = f"local_{filename}"
+
+            conn = sqlite3.connect('rupit_antic.db')
+            c = conn.cursor()
+            c.execute('''
+                INSERT OR REPLACE INTO fotografies (id, titol, creador, data, descripcio, url_orig, thumbnail)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (foto_id, titol, creador, data, descripcio, '#', img_url))
+            conn.commit()
+            conn.close()
+
+            return redirect(url_for('index'))
+
+    return render_template_string(FORM_TEMPLATE)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
