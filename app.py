@@ -36,7 +36,6 @@ HTML_TEMPLATE = '''
             font-style: italic; 
         }
         
-        /* Estils per al cercador */
         .search-container {
             margin-top: 1.5rem;
             display: flex;
@@ -105,6 +104,7 @@ HTML_TEMPLATE = '''
             height: 220px; 
             object-fit: cover; 
             background: #e0e0e0; 
+            cursor: pointer;
         }
         .card-content { 
             padding: 1rem; 
@@ -124,17 +124,79 @@ HTML_TEMPLATE = '''
             color: #666; 
             margin-bottom: 1rem; 
         }
+        
+        /* Botons d'acció */
+        .actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: auto;
+        }
         .btn { 
+            flex: 1;
             display: inline-block; 
             text-align: center; 
             background: #8c6d58; 
             color: white; 
             text-decoration: none; 
-            padding: 0.5rem; 
+            padding: 0.5rem 0.2rem; 
             border-radius: 4px; 
-            font-size: 0.85rem; 
+            font-size: 0.8rem; 
             font-weight: bold; 
+            border: none;
+            cursor: pointer;
         }
+        .btn:hover {
+            background: #6e5443;
+        }
+        .btn-outline {
+            background: transparent;
+            color: #8c6d58;
+            border: 1px solid #8c6d58;
+        }
+        .btn-outline:hover {
+            background: #e0ddd5;
+            color: #2c221e;
+        }
+
+        /* Visor en Gran (Modal Lightbox) */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            padding: 1rem;
+            box-sizing: border-box;
+        }
+        .modal img {
+            max-width: 90%;
+            max-height: 80vh;
+            border-radius: 4px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .modal-caption {
+            color: #fff;
+            margin-top: 1rem;
+            text-align: center;
+            font-family: Georgia, serif;
+            font-size: 1.1rem;
+        }
+        .close-modal {
+            position: absolute;
+            top: 20px;
+            right: 35px;
+            color: #fff;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
         footer { 
             text-align: center; 
             padding: 2rem; 
@@ -151,7 +213,6 @@ HTML_TEMPLATE = '''
     <h1>Rupit Antic</h1>
     <p>Memòria fotogràfica i patrimoni històric de Rupit i el Collsacabra</p>
     
-    <!-- Formulari del Cercador -->
     <form class="search-container" method="GET" action="/">
         <input type="text" name="q" placeholder="Cerca per carrer, església, autor, any..." value="{{ query }}">
         <button type="submit">Cercar</button>
@@ -171,7 +232,7 @@ HTML_TEMPLATE = '''
     <div class="grid">
         {% for foto in fotos %}
         <div class="card">
-            <img src="{{ foto[6] }}" alt="{{ foto[1] }}" loading="lazy">
+            <img src="{{ foto[6] }}" alt="{{ foto[1] }}" loading="lazy" onclick="obrirGran('{{ foto[6] }}', '{{ foto[1]|replace("'", "\\'") }}')">
             <div class="card-content">
                 <div>
                     <h3>{{ foto[1] }}</h3>
@@ -180,11 +241,23 @@ HTML_TEMPLATE = '''
                         <span><strong>Data:</strong> {{ foto[3] }}</span>
                     </div>
                 </div>
-                <a href="{{ foto[5] }}" target="_blank" class="btn">Veure fitxa a l'arxiu d'origen</a>
+                
+                <!-- Els dos botons d'acció -->
+                <div class="actions">
+                    <button class="btn btn-outline" onclick="obrirGran('{{ foto[6] }}', '{{ foto[1]|replace("'", "\\'") }}')">🔍 Ampliar</button>
+                    <a href="{{ foto[5] }}" target="_blank" class="btn">🔗 Veure font</a>
+                </div>
             </div>
         </div>
         {% endfor %}
     </div>
+</div>
+
+<!-- Finestra Modal per veure la imatge en gran -->
+<div id="imageModal" class="modal" onclick="tancarGran()">
+    <span class="close-modal">&times;</span>
+    <img id="modalImg" src="" alt="Imatge ampliada">
+    <div id="modalCaption" class="modal-caption"></div>
 </div>
 
 <footer>
@@ -193,6 +266,30 @@ HTML_TEMPLATE = '''
         Aquest és un projecte personal sense ànim de lucre creat amb finalitats culturals, de preservació i divulgació del patrimoni històric local.
     </p>
 </footer>
+
+<script>
+    function obrirGran(url, titol) {
+        var modal = document.getElementById("imageModal");
+        var modalImg = document.getElementById("modalImg");
+        var modalCaption = document.getElementById("modalCaption");
+        
+        modal.style.display = "flex";
+        modalImg.src = url;
+        modalCaption.innerText = titol;
+    }
+
+    function tancarGran() {
+        document.getElementById("imageModal").style.display = "none";
+    }
+
+    // Tancar amb la tecla Escape
+    document.addEventListener('keydown', function(event) {
+        if (event.key === "Escape") {
+            tancarGran();
+        }
+    });
+</script>
+
 </body>
 </html>
 '''
@@ -205,14 +302,18 @@ def index():
     
     if query:
         search_param = f"%{query}%"
-        # Cerca la paraula clau al títol, la descripció, l'autor o la data
         cursor.execute('''
             SELECT * FROM fotografies 
-            WHERE titol LIKE ? OR descripcio LIKE ? OR creador LIKE ? OR data LIKE ?
+            WHERE (thumbnail LIKE 'http%') 
+              AND (titol LIKE ? OR descripcio LIKE ? OR creador LIKE ? OR data LIKE ?)
             ORDER BY data ASC
         ''', (search_param, search_param, search_param, search_param))
     else:
-        cursor.execute('SELECT * FROM fotografies ORDER BY data ASC')
+        cursor.execute('''
+            SELECT * FROM fotografies 
+            WHERE thumbnail LIKE 'http%' 
+            ORDER BY data ASC
+        ''')
         
     fotos = cursor.fetchall()
     conn.close()
