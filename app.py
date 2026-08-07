@@ -188,9 +188,11 @@ HTML_TEMPLATE = '''
 </div>
 
 <footer>
-    <p><strong>Rupit Antic</strong> — Arxiu digital de Rupit i Pruit.</p>
+    <p><strong>Rupit Antic</strong> — Arxiu digital i memòria fotogràfica de Rupit i Pruit.</p>
+    <p style="margin-top: 0.5rem; opacity: 0.8; font-size: 0.8rem;">
+        Aquest és un projecte personal sense ànim de lucre creat amb finalitats culturals, de preservació i divulgació del patrimoni històric local.
+    </p>
 </footer>
-
 </body>
 </html>
 '''
