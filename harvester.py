@@ -55,9 +55,15 @@ def guardar_fotografia(foto):
 def extreure_fotos_multiarxiu():
     inicialitzar_db()
     
-    # Paraules clau de cerca territorial
     termes_cerca = ['rupit', 'pruit', 'collsacabra', 'sallent de rupit', 'sant joan de fabregues']
     
+    # Paraules clau per descartar documents de text, llibres, manuscrits i plets
+    descartar_text = [
+        'iuris', 'responsum', 'pro ', 'por el', 'manifiesto', 'allegatio', 
+        'causa', 'pleito', 'notaria', 'notarial', 'arxiu notarial', 'liber',
+        'escriptura', 'privilegi', 'sentencia', 'real provision', 'consell'
+    ]
+
     total_trobades = 0
 
     for fons in ENDPOINTS:
@@ -77,18 +83,21 @@ def extreure_fotos_multiarxiu():
                 desc = meta.get('description', [''])[0] if meta.get('description') else ''
                 text_complet = f"{titol} {desc}".lower()
                 
-                # Check 1: Coincidència de territori
+                # Check 1: Si conté paraules de documents de text o llibres, EL SALTEM DIRECTAMENT
+                if any(paraula in text_complet for paraula in descartar_text):
+                    continue
+
+                # Check 2: Coincidència territorial
                 if any(terme in text_complet for terme in termes_cerca):
                     
-                    # Check 2: Filtre d'any (<= 1960)
                     dates = meta.get('date', [''])
                     str_data = dates[0] if dates else 'Data no consta'
                     any_foto = extreure_any(str_data)
                     
-                    if any_foto and any_foto > 1960:
-                        continue # Descartem les posteriors a 1960
+                    # Check 3: La fotografia no existia abans de 1850. Descartem anteriors a 1850 i posteriors a 1960
+                    if any_foto and (any_foto < 1850 or any_foto > 1960):
+                        continue
                     
-                    # Check 3: Identificar URLs d'imatge
                     identifiers = meta.get('identifier', [])
                     url_orig = ""
                     thumbnail = ""
@@ -98,7 +107,6 @@ def extreure_fotos_multiarxiu():
                             url_orig = ident
                             break
                     
-                    # Generació de miniatura segons la font
                     if "cdm/ref" in url_orig:
                         try:
                             parts = url_orig.split('/collection/')[1].split('/id/')
@@ -107,21 +115,18 @@ def extreure_fotos_multiarxiu():
                         except IndexError:
                             continue
                     elif "calaix.gencat.cat" in url_orig:
-                        thumbnail = url_orig # Miniatura d'INVARQUIT / Calaix
+                        thumbnail = url_orig
                     else:
-                        # Si no té enllaç directe d'imatge vàlid, la saltem
                         continue
 
                     identifier = record.header.identifier
                     creador = meta.get('creator', ['Autor desconegut'])[0] if meta.get('creator') else 'Autor desconegut'
 
-                    # Guardar a la base de dades
                     guardar_fotografia((identifier, titol, creador, str_data, desc, url_orig, thumbnail))
                     trobades_fons += 1
                     total_trobades += 1
                     
-                    any_mostrat = any_foto if any_foto else "Antiga (s/d)"
-                    print(f"  📸 [{any_mostrat}] {titol[:50]}...")
+                    print(f"  📸 [{any_foto or 'S/D'}] {titol[:50]}...")
 
                 if revisats % 300 == 0:
                     print(f"    Analitzats {revisats} registres de {fons['nom']}...")
@@ -129,7 +134,4 @@ def extreure_fotos_multiarxiu():
         except Exception as e:
             print(f" ⚠️ Error en consultar {fons['nom']}: {e}")
 
-    print(f"\n Procs d'extracció finalitzat! S'han afegit {total_trobades} fotografies històriques.")
-
-if __name__ == '__main__':
-    extreure_fotos_multiarxiu()
+    print(f"\n Procés finalitzat! S'han afegit {total_trobades} fotografies històriques reals.")
